@@ -5,7 +5,7 @@ public partial class Tree<TKey, TValue>
     public async Task<(TKey, TValue)[]> ToSortedArrayConcurrent(Node<TKey, TValue>? subtreeRoot = null)
     {
         Node<TKey, TValue> workingTreeRoot = subtreeRoot ?? Root!;
-        (TKey, TValue)[] array = new (TKey, TValue)[Count];
+        (TKey, TValue)[] array = new (TKey, TValue)[workingTreeRoot.SubtreeSize];
         if (Count == 0)
             return array;
         

@@ -2,6 +2,8 @@
 
 public partial class Tree<TKey, TValue>
 {
+    private (TKey, TValue)[] finalResult;
+    private List<Task> activeTasks;
     public async Task<(TKey, TValue)[]> ToSortedArrayParallel(Node<TKey, TValue>? subtreeRoot = null, int threads = 8)
     {
         Node<TKey, TValue> workingTreeRoot = subtreeRoot! ?? Root!;
@@ -10,50 +12,46 @@ public partial class Tree<TKey, TValue>
             return Array.Empty<(TKey, TValue)>();
         }
 
-        return await ParallelPassThrough(workingTreeRoot, threads);
+        activeTasks = new List<Task>();
+        finalResult = new (TKey, TValue)[workingTreeRoot.SubtreeSize];
+        
+        await ParallelPassThrough(workingTreeRoot, threads, 0);
+        await Task.WhenAll(activeTasks);
+        return finalResult;
     }
 
-    private async Task<(TKey, TValue)[]> ParallelPassThrough(Node<TKey, TValue> subtreeRoot, int threads)
+    private async Task ParallelPassThrough(Node<TKey, TValue> subtreeRoot, int threads, int arrayStartingIndex)
     {
         if (threads < 2)
-            return await ToSortedArrayConcurrent(subtreeRoot);
+        {
+            (await ToSortedArrayConcurrent(subtreeRoot)).CopyTo(finalResult, arrayStartingIndex);
+            return;
+        }
 
         if (HasTwoChildren(subtreeRoot))
         {
-            var task1 = Task.Run(async () => await ParallelPassThrough(subtreeRoot.FirstChild!, threads / 2));
-            var task2 = Task.Run(async () => await ParallelPassThrough(subtreeRoot.SecondChild!, threads - threads / 2));
-
-            var res1 = await task1;
-            var res2 = await task2;
-            var finRes = new (TKey, TValue)[res1.Length + 1 + res2.Length];
-            res1.CopyTo(finRes, 0);
-            finRes[res1.Length] = (subtreeRoot.Key, subtreeRoot.Value);
-            res2.CopyTo(finRes, res1.Length+1);
-            return finRes;
+            activeTasks.Add(Task.Run(async () => await ParallelPassThrough(subtreeRoot.FirstChild!, threads / 2, arrayStartingIndex)));
+            activeTasks.Add(Task.Run(async () => await ParallelPassThrough(subtreeRoot.SecondChild!,
+                threads - threads / 2, arrayStartingIndex + subtreeRoot.FirstChild!.SubtreeSize + 1)));
+            finalResult[arrayStartingIndex + subtreeRoot.FirstChild!.SubtreeSize] =
+                (subtreeRoot.Key, subtreeRoot.Value);
+            return;
         }
         
+        finalResult[arrayStartingIndex] = (subtreeRoot.Key, subtreeRoot.Value);
         if (HasOneChild(subtreeRoot))
         {
             if (subtreeRoot.FirstChild is not null)
             {
-                var task1 = Task.Run(async () => await ParallelPassThrough(subtreeRoot.FirstChild!, threads));
+                activeTasks.Add(Task.Run(async () => await ParallelPassThrough(subtreeRoot.FirstChild!, threads, arrayStartingIndex)));
 
-                var res1 = await task1;
-                var finalResults = new (TKey, TValue)[res1.Length + 1];
-                res1.CopyTo(finalResults, 0);
-                finalResults[res1.Length] = (subtreeRoot.Key, subtreeRoot.Value);
-                return finalResults;
+                finalResult[arrayStartingIndex + subtreeRoot.FirstChild!.SubtreeSize] =
+                    (subtreeRoot.Key, subtreeRoot.Value);
+                return;
             }
             
-            var task2 = Task.Run(async () => await ParallelPassThrough(subtreeRoot.SecondChild!, threads));
-            var res2 = await task2;
-            var finalResult = new (TKey, TValue)[1 + res2.Length];
-            finalResult[0] = (subtreeRoot.Key, subtreeRoot.Value);
-            res2.CopyTo(finalResult, 1);
-            return finalResult;
+            activeTasks.Add(Task.Run(async () => await ParallelPassThrough(subtreeRoot.SecondChild!, threads, arrayStartingIndex+1)));
         }
-        
-        return new (TKey, TValue)[] { (subtreeRoot.Key, subtreeRoot.Value) };
     }
 
     private bool HasTwoChildren(Node<TKey, TValue> node)

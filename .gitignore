@@ -1,0 +1,5 @@
+﻿/.idea/
+./CourseWork/bin/
+./CourseWork/obj/
+*.json
+*.targets
